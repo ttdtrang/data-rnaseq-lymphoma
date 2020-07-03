@@ -260,7 +260,7 @@ Generated earlier, same for all data sets.
 #### Assembling an `ExpressionSet`
 
 ```{r}
-lymphoma.rnaseq.gene.star_rsem1 <- ExpressionSet(assayData = gene.assayData,
+lymphoma.rnaseq.gene.star_rsem2 <- ExpressionSet(assayData = gene.assayData,
                              phenoData = phenoData,
                              experimentData = experimentData,
                              featureData = gene.featureData,
@@ -289,7 +289,7 @@ Same as that of gene-level data set.
 #### Annotations and features
 
 ```{r}
-feature_attrs = read.table(file.path(DIR_RSEM2, 'feature_attrs.transcripts.tsv'), sep = '\t', header=TRUE, colClasses = 'character')
+feature_attrs = read.table(file.path(DIR_RSEM2, 'feature_attrs.rsem.transcripts.tsv'), sep = '\t', header=TRUE, colClasses = 'character')
 transcript.featureData <- data.frame('transcript_id' = rownames(transcript.assayData$exprs)) %>%
     plyr::join(y = feature_attrs[, c('transcript_id', 'gene_id', 'length', 'effective_length')], by = 'transcript_id', type = 'left') %>%
     set_names(c('ID', 'GeneId', 'Length', 'EffectiveLength'))
@@ -305,7 +305,7 @@ Generated earlier, same for all data sets.
 #### Assembling an `ExpressionSet`
 
 ```{r}
-lymphoma.rnaseq.transcript.star_rsem1 <- ExpressionSet(assayData = transcript.assayData,
+lymphoma.rnaseq.transcript.star_rsem2 <- ExpressionSet(assayData = transcript.assayData,
                              phenoData = phenoData,
                              experimentData = experimentData,
                              featureData = transcript.featureData,
