@@ -23,7 +23,7 @@ data(sarcoma.rnaseq.gene, package='data.rnaseq.lymphoma')
 dim(lymphoma.rnaseq.gene.kallisto@assayData$exprs)
 ```
 
-The package includes 4 data sets.
+The package includes 4 data sets, 2 were processed with STAR_2.5-RSEM workflow, and 2 with STAR_2.7-RSEM workflow.
 ```
 lymphoma.rnaseq.gene.star_rsem1
 lymphoma.rnaseq.transcript.star_rsem1
