@@ -1,0 +1,27 @@
+---
+title: "Parsing metadata from SOFT-formatted file (GEO)"
+author: "Trang Tran"
+date: "July 2, 2020"
+output: html_notebook
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+library(magrittr)
+library(ggplot2)
+# Sys.setenv('DBDIR' = 'path/to/data/dir')
+Sys.setenv('DBDIR' = './')
+options(stringsAsFactors = FALSE)
+knitr::opts_chunk$set(echo = TRUE)
+softfile = file.path(Sys.getenv('DBDIR'), 'GSE116129_family.soft')
+source('../R/utils.R')
+```
+
+
+## Metadata for samples
+
+
+```{r}
+metadata = read.soft2dataframe(softfile, entryType = 'SAMPLE', idColumnName = 'SampleId')
+```
+
+There is no extra information compared to metadata from SRA.
