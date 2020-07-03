@@ -1,0 +1,324 @@
+---
+title: "Create data package"
+author: "Trang Tran"
+date: "March 22, 2020"
+output: html_notebook
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+library(magrittr)
+library(ggplot2)
+library(Biobase)
+
+options(stringsAsFactors = FALSE)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+## Download count matrices and meta data, set environment variable 'DBDIR'
+
+```{r}
+Sys.setenv('DBDIR' = '.')
+file.metadata_sra = 'PRJNA477352_metadata_cleaned.tsv'
+```
+
+## Experiment description - same for all processing workflows
+
+```{r}
+experimentData <- new("MIAME",
+                      lab = "Qi lab, Cancer Biology, Dana-Farber",
+                      contact = "Jun Qi",
+                      title = "Chromosomal deletion and chromatin remodeling Drive ABT-199 Resistance in B-cell Lymphomas [RNA-seq]",
+                      abstract = "Drug-tolerant “persister” cells underlie the emergence of drug-resistant clones and allow residual tumors to survive therapy; thus, represent an attractive therapeutic target to mitigate relapse. With the promising outcome, yet some resistance cases surfaced after the approval of venetoclax (ABT-199), we defined a novel invasive drug resistance mechanism induced by Bcl2 inhibitor via examining the evolution of drug tolerant persister clones generated with ABT-199 treatment. The ABT-199 drug-tolerant persister cells showed genetic alteration by losing the copy number at 18q21 paralleled with BCL2, PMAIP1 and TCF4 gene downregulation. The persister status are generated through major enhancer-remodeling mediated transcriptional activation of the super enhancer, which offered unique opportunity for overcoming the drug resistance. The insight of major determinant for ABT-199 persistence evolution identified the molecular vulnerability in Bcl2 inhibitor resistant lymphoma cells through CDK7 pathway inhibition. The combined CDK7 and BCL2 inhibition was found to be more effective against ABT-199 persistence ex vivo and in vivo rather than the parental line, and CDK7 inhibition eliminated the persister phenotype by blocking dynamic active enhancer formation to further prevent the evolution of drug resistance. Together, these studies unified genetic alteration and non-mutational adaptive response as a drug resistance mechanism, more importantly, demonstrated a rationale for transcriptional inhibition-based combination strategies to prevent and overcome drug resistance in B-cell malignancies.",
+                      other = list(
+                          citation = "Zhao X, Ren Y, Lawlor M, Shah BD et al. BCL2 Amplicon Loss and Transcriptional Remodeling Drives ABT-199 Resistance in B Cell Lymphoma Models. Cancer Cell 2019 May 13;35(5):752-766.e9. PMID: 31085176"
+                      )
+                      )
+```
+
+## STAR-RSEM workflow, STAR 2.5
+
+```{r}
+DIR_RSEM1 = file.path(Sys.getenv('DBDIR'), 'star_2.5-rsem')
+```
+
+### Gene-level `ExpressionSet`
+
+#### Assay data
+
+```{r}
+gene.counts = readRDS(file.path(DIR_RSEM1, 'matrix.gene.expected_count.RDS'))
+gene.tpm = readRDS(file.path(DIR_RSEM1, 'matrix.gene.tpm.RDS'))
+gene.assayData <- new.env()
+assign('exprs', gene.counts, envir = gene.assayData) # exprs is required
+assign('expected_count', gene.counts, envir = gene.assayData)
+assign('tpm', gene.tpm, envir = gene.assayData)
+ExpressionSet(assayData = gene.assayData)
+```
+
+#### Annotations and features
+
+```{r}
+gene.featureData <- data.frame('ID' = rownames(gene.assayData$exprs))
+rownames(gene.featureData) = gene.featureData$ID
+gene.featureData = gene.featureData %>%
+    Biobase::AnnotatedDataFrame(data = ., varMetadata = data.frame('labelDescription' = colnames(.), row.names = colnames(.)))
+```
+
+#### Phenotypic data
+
+```{r}
+metadata = read.table(file.path(Sys.getenv('DBDIR'), file.metadata_sra), sep = '\t', header = TRUE)
+libnames <- colnames(gene.assayData$exprs) %>% as.character()
+phenoData <- data.frame('BiosampleId' = libnames) %>%
+    plyr::join(y = metadata, by = 'BiosampleId', type = 'left')  %>%
+    set_rownames(libnames) %>%
+    Biobase::AnnotatedDataFrame(data = ., varMetadata = data.frame('labelDescription' = colnames(.), row.names = colnames(.)))   
+```
+
+Make sure that sample (column) ordering is preserved after joining.
+
+```{r}
+all(colnames(gene.assayData$exprs) == rownames(phenoData@data$BiosampleId))
+all(colnames(gene.assayData$exprs) == rownames(phenoData@data))
+```
+
+Re-processing stats
+
+```{r}
+starLog = read.table(file.path(DIR_RSEM1,
+                               'starLog.final.tsv'), sep = '\t',header=TRUE)
+meta1 = data.frame(t(starLog[,-c(1,2)])) %>%
+    set_colnames(paste0('starAlignment.',starLog[[1]])) %>%
+    set_rownames(colnames(starLog)[-c(1,2)])
+meta1$BiosampleId = rownames(meta1)
+str(meta1)
+```
+
+```{r}
+libnames <- colnames(gene.assayData$exprs) %>% as.character()
+allMeta <- data.frame('BiosampleId' = libnames) %>%
+    plyr::join(y = metadata, by = 'BiosampleId', type = 'left')  %>%
+    plyr::join(y = meta1, by = 'BiosampleId', type = 'left') %>%
+    set_rownames(libnames)
+colDescription = colnames(allMeta)
+colDescription[grepl('starAlignment', colnames(allMeta))] = starLog[[2]]
+phenoData <-
+    Biobase::AnnotatedDataFrame(data = allMeta, varMetadata = data.frame('labelDescription' = colDescription, row.names = colnames(allMeta)))
+phenoData@varMetadata
+```
+
+Making sure sample order is preserved
+
+```{r}
+all(phenoData@data$BiosampleId == colnames(gene.counts))
+```
+
+#### Experiment description
+
+Generated earlier, same for all data sets.
+
+#### Assembling an `ExpressionSet`
+
+```{r}
+lymphoma.rnaseq.gene.star_rsem1 <- ExpressionSet(assayData = gene.assayData,
+                             phenoData = phenoData,
+                             experimentData = experimentData,
+                             featureData = gene.featureData,
+                             annotation = 'Gencode GRCh38.p10 + ERCC-92'
+                             )
+```
+
+### Transcript-level `ExpressionSet`
+
+#### Assay data
+
+```{r}
+transcript.counts = readRDS(file.path(DIR_RSEM1, 'matrix.transcripts.expected_count.RDS'))
+transcript.tpm = readRDS(file.path(DIR_RSEM1, 'matrix.transcripts.tpm.RDS'))
+transcript.assayData <- new.env()
+assign('exprs', transcript.counts, envir = transcript.assayData) # exprs is required
+assign('expected_count', transcript.counts, envir = transcript.assayData)
+assign('tpm', transcript.tpm, envir = transcript.assayData)
+ExpressionSet(assayData = transcript.assayData)
+```
+
+#### Phenotypic data
+
+Same as that of gene-level data set.
+
+#### Annotations and features
+
+```{r}
+feature_attrs = read.table(file.path(DIR_RSEM1, 'feature_attrs.transcripts.tsv'), sep = '\t', header=TRUE, colClasses = 'character')
+transcript.featureData <- data.frame('transcript_id' = rownames(transcript.assayData$exprs)) %>%
+    plyr::join(y = feature_attrs[, c('transcript_id', 'gene_id', 'length', 'effective_length')], by = 'transcript_id', type = 'left') %>%
+    set_names(c('ID', 'GeneId', 'Length', 'EffectiveLength'))
+rownames(transcript.featureData) = transcript.featureData$ID
+transcript.featureData = transcript.featureData %>%
+    Biobase::AnnotatedDataFrame(data = ., varMetadata = data.frame('labelDescription' = colnames(.), row.names = colnames(.)))
+```
+
+#### Experiment description
+
+Generated earlier, same for all data sets.
+
+#### Assembling an `ExpressionSet`
+
+```{r}
+lymphoma.rnaseq.transcript.star_rsem1 <- ExpressionSet(assayData = transcript.assayData,
+                             phenoData = phenoData,
+                             experimentData = experimentData,
+                             featureData = transcript.featureData,
+                             annotation = 'Gencode GRCh38.p10 + ERCC-92'
+                             )
+```
+
+## STAR-RSEM workflow, STAR 2.7
+
+```{r}
+DIR_RSEM2 = file.path(Sys.getenv('DBDIR'), 'star_2.7-rsem')
+```
+
+### Gene-level `ExpressionSet`
+
+#### Assay data
+
+```{r}
+gene.counts = readRDS(file.path(DIR_RSEM2, 'matrix.gene.expected_count.RDS'))
+gene.tpm = readRDS(file.path(DIR_RSEM2, 'matrix.gene.tpm.RDS'))
+gene.assayData <- new.env()
+assign('exprs', gene.counts, envir = gene.assayData) # exprs is required
+assign('expected_count', gene.counts, envir = gene.assayData)
+assign('tpm', gene.tpm, envir = gene.assayData)
+ExpressionSet(assayData = gene.assayData)
+```
+
+#### Annotations and features
+
+```{r}
+gene.featureData <- data.frame('ID' = rownames(gene.assayData$exprs))
+rownames(gene.featureData) = gene.featureData$ID
+gene.featureData = gene.featureData %>%
+    Biobase::AnnotatedDataFrame(data = ., varMetadata = data.frame('labelDescription' = colnames(.), row.names = colnames(.)))
+```
+
+#### Phenotypic data
+
+```{r}
+metadata = read.table(file.path(Sys.getenv('DBDIR'), file.metadata_sra), sep = '\t', header = TRUE)
+libnames <- colnames(gene.assayData$exprs) %>% as.character()
+phenoData <- data.frame('BiosampleId' = libnames) %>%
+    plyr::join(y = metadata, by = 'BiosampleId', type = 'left')  %>%
+    set_rownames(libnames) %>%
+    Biobase::AnnotatedDataFrame(data = ., varMetadata = data.frame('labelDescription' = colnames(.), row.names = colnames(.)))   
+```
+
+Make sure that sample (column) ordering is preserved after joining.
+
+```{r}
+all(colnames(gene.assayData$exprs) == rownames(phenoData@data$BiosampleId))
+all(colnames(gene.assayData$exprs) == rownames(phenoData@data))
+```
+
+Re-processing stats
+
+```{r}
+starLog = read.table(file.path(DIR_RSEM2,
+                               'starLog.final.tsv'), sep = '\t',header=TRUE)
+meta1 = data.frame(t(starLog[,-c(1,2)])) %>%
+    set_colnames(paste0('starAlignment.',starLog[[1]])) %>%
+    set_rownames(colnames(starLog)[-c(1,2)])
+meta1$BiosampleId = rownames(meta1)
+str(meta1)
+```
+
+```{r}
+libnames <- colnames(gene.assayData$exprs) %>% as.character()
+allMeta <- data.frame('BiosampleId' = libnames) %>%
+    plyr::join(y = metadata, by = 'BiosampleId', type = 'left')  %>%
+    plyr::join(y = meta1, by = 'BiosampleId', type = 'left') %>%
+    set_rownames(libnames)
+colDescription = colnames(allMeta)
+colDescription[grepl('starAlignment', colnames(allMeta))] = starLog[[2]]
+phenoData <-
+    Biobase::AnnotatedDataFrame(data = allMeta, varMetadata = data.frame('labelDescription' = colDescription, row.names = colnames(allMeta)))
+phenoData@varMetadata
+```
+
+Making sure sample order is preserved
+
+```{r}
+all(phenoData@data$BiosampleId == colnames(gene.counts))
+```
+
+#### Experiment description
+
+Generated earlier, same for all data sets.
+
+#### Assembling an `ExpressionSet`
+
+```{r}
+lymphoma.rnaseq.gene.star_rsem1 <- ExpressionSet(assayData = gene.assayData,
+                             phenoData = phenoData,
+                             experimentData = experimentData,
+                             featureData = gene.featureData,
+                             annotation = 'Gencode GRCh38.p10 + ERCC-92'
+                             )
+```
+
+### Transcript-level `ExpressionSet`
+
+#### Assay data
+
+```{r}
+transcript.counts = readRDS(file.path(DIR_RSEM2, 'matrix.transcripts.expected_count.RDS'))
+transcript.tpm = readRDS(file.path(DIR_RSEM2, 'matrix.transcripts.tpm.RDS'))
+transcript.assayData <- new.env()
+assign('exprs', transcript.counts, envir = transcript.assayData) # exprs is required
+assign('expected_count', transcript.counts, envir = transcript.assayData)
+assign('tpm', transcript.tpm, envir = transcript.assayData)
+ExpressionSet(assayData = transcript.assayData)
+```
+
+#### Phenotypic data
+
+Same as that of gene-level data set.
+
+#### Annotations and features
+
+```{r}
+feature_attrs = read.table(file.path(DIR_RSEM2, 'feature_attrs.transcripts.tsv'), sep = '\t', header=TRUE, colClasses = 'character')
+transcript.featureData <- data.frame('transcript_id' = rownames(transcript.assayData$exprs)) %>%
+    plyr::join(y = feature_attrs[, c('transcript_id', 'gene_id', 'length', 'effective_length')], by = 'transcript_id', type = 'left') %>%
+    set_names(c('ID', 'GeneId', 'Length', 'EffectiveLength'))
+rownames(transcript.featureData) = transcript.featureData$ID
+transcript.featureData = transcript.featureData %>%
+    Biobase::AnnotatedDataFrame(data = ., varMetadata = data.frame('labelDescription' = colnames(.), row.names = colnames(.)))
+```
+
+#### Experiment description
+
+Generated earlier, same for all data sets.
+
+#### Assembling an `ExpressionSet`
+
+```{r}
+lymphoma.rnaseq.transcript.star_rsem1 <- ExpressionSet(assayData = transcript.assayData,
+                             phenoData = phenoData,
+                             experimentData = experimentData,
+                             featureData = transcript.featureData,
+                             annotation = 'Gencode GRCh38.p10 + ERCC-92'
+                             )
+```
+
+## Writing data sets
+
+```{r,eval=FALSE}
+usethis::use_data(lymphoma.rnaseq.gene.star_rsem1,internal = FALSE, overwrite = TRUE)
+usethis::use_data(lymphoma.rnaseq.transcript.star_rsem1,internal = FALSE, overwrite = TRUE)
+usethis::use_data(lymphoma.rnaseq.gene.star_rsem2,internal = FALSE, overwrite = TRUE)
+usethis::use_data(lymphoma.rnaseq.transcript.star_rsem2,internal = FALSE, overwrite = TRUE)
+```
+
