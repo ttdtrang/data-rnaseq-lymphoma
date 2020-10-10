@@ -24,4 +24,28 @@ source('../R/utils.R')
 metadata = read.soft2dataframe(softfile, entryType = 'SAMPLE', idColumnName = 'SampleId')
 ```
 
-There is no extra information compared to metadata from SRA.
+An important metadata is cell line. There are 4 different cell lines in the experiment: parental (PAR) and 3 drug-tolerant expanded population (I10, J4, L20). However there is no separate field to record this information. To obtain this information, we extract the text from `Sample_title`.
+
+```{r}
+metadata$Sample_title
+```
+Cell line
+
+```{r}
+metadata$CellLine = gsub("^([A-Z]+[0-9]*)_.+$", '\\1', metadata$Sample_title)
+```
+
+Replicate
+
+```{r}
+metadata$Replicate = as.integer(gsub("^.+(\\d)$", '\\1', metadata$Sample_title))
+```
+
+
+Write metadata file
+
+```{r,eval=FALSE}
+metadata$SampleName = metadata$SampleId
+saveRDS(metadata[,c('SampleName', 'CellLine', 'Replicate')], 'samples_metadata_geo.RDS')
+```
+
