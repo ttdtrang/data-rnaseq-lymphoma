@@ -209,23 +209,7 @@ gene.featureData = gene.featureData %>%
 
 #### Phenotypic data
 
-```{r}
-metadata = read.table(file.path(Sys.getenv('DBDIR'), file.metadata_sra), sep = '\t', header = TRUE)
-libnames <- colnames(gene.assayData$exprs) %>% as.character()
-phenoData <- data.frame('BiosampleId' = libnames) %>%
-    plyr::join(y = metadata, by = 'BiosampleId', type = 'left')  %>%
-    set_rownames(libnames) %>%
-    Biobase::AnnotatedDataFrame(data = ., varMetadata = data.frame('labelDescription' = colnames(.), row.names = colnames(.)))   
-```
-
-Make sure that sample (column) ordering is preserved after joining.
-
-```{r}
-all(colnames(gene.assayData$exprs) == rownames(phenoData@data$BiosampleId))
-all(colnames(gene.assayData$exprs) == rownames(phenoData@data))
-```
-
-Re-processing stats
+Re-use the `metadata` from above. Add re-processing stats.
 
 ```{r}
 starLog = read.table(file.path(DIR_RSEM2,
